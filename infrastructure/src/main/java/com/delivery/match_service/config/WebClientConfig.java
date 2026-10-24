@@ -3,7 +3,6 @@ package com.delivery.match_service.config;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
-import org.springframework.cloud.client.loadbalancer.LoadBalanced;
 import org.springframework.web.reactive.function.client.WebClient;
 import org.springframework.beans.factory.annotation.Qualifier;
 import reactor.netty.http.client.HttpClient;
@@ -29,7 +28,6 @@ public class WebClientConfig {
     private String internalSecret;
 
     @Bean
-    @LoadBalanced
     @Qualifier("settlementServiceWebClientBuilder")
     public WebClient.Builder settlementServiceWebClientBuilder() {
         return WebClient.builder();
