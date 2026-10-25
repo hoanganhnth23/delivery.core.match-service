@@ -1,5 +1,6 @@
 package com.delivery.match_service.listener;
 
+import com.delivery.match.domain.single.SingleOfferPolicy;
 import com.delivery.match_service.dto.event.FindShipperEvent;
 import com.delivery.match_service.dto.event.MatchingDecisionTraceEvent;
 import com.delivery.match_service.dto.event.ShipperFoundEvent;
@@ -141,6 +142,7 @@ class FindShipperEventListenerTest {
         assertEquals(testEvent.getMatchingSessionId().toString(), eventCaptor.getValue().getMatchingSessionId());
         assertEquals(1, eventCaptor.getValue().getAvailableShippers().size());
         assertEquals(1L, eventCaptor.getValue().getAvailableShippers().get(0).getShipperId());
+        assertEquals(SingleOfferPolicy.DEFAULT_WAITING_TIMEOUT_SECONDS, eventCaptor.getValue().getWaitingTimeoutSeconds());
     }
 
     @Test
@@ -191,13 +193,13 @@ class FindShipperEventListenerTest {
         when(matchService.findNearbyShippers(any(FindNearbyShippersRequest.class), anyLong(), anyString(), eq(context)))
                 .thenReturn(Mono.just(List.of(shipper)));
         when(matchService.tryReserveShipperOffer(eq(1L), eq(123L), eq(testEvent.getMatchingSessionId()),
-                eq(180), eq(context))).thenReturn(true);
+                eq(SingleOfferPolicy.DEFAULT_WAITING_TIMEOUT_SECONDS), eq(context))).thenReturn(true);
 
         listener.handleFindShipperEvent(objectMapper.writeValueAsString(testEvent), "test-topic", 0,
                 System.currentTimeMillis()).block();
 
         verify(matchService, atLeastOnce()).findNearbyShippers(any(FindNearbyShippersRequest.class), anyLong(), anyString(), eq(context));
-        verify(matchService).tryReserveShipperOffer(1L, 123L, testEvent.getMatchingSessionId(), 180, context);
+        verify(matchService).tryReserveShipperOffer(1L, 123L, testEvent.getMatchingSessionId(), SingleOfferPolicy.DEFAULT_WAITING_TIMEOUT_SECONDS, context);
         verify(matchService, never()).findNearbyShippers(any(FindNearbyShippersRequest.class), anyLong(), anyString());
     }
 
@@ -318,7 +320,7 @@ class FindShipperEventListenerTest {
         listener.handleFindShipperEvent(
                 objectMapper.writeValueAsString(testEvent), "test-topic", 0, System.currentTimeMillis()).block();
 
-        verify(matchService).tryReserveShipperOffer(1L, 123L, testEvent.getMatchingSessionId(), 180);
+        verify(matchService).tryReserveShipperOffer(1L, 123L, testEvent.getMatchingSessionId(), SingleOfferPolicy.DEFAULT_WAITING_TIMEOUT_SECONDS);
         verify(matchService).releaseShipperOffer(1L, 123L, testEvent.getMatchingSessionId());
         verify(matchCommandStore).stageNotFoundResult(
                 eq(testEvent.getEventId()), any(ShipperNotFoundEvent.class), eq(true));
@@ -459,7 +461,7 @@ class FindShipperEventListenerTest {
         verify(matchCommandStore, timeout(1000)).stageFoundResult(eq(testEvent.getEventId()), eventCaptor.capture());
         assertEquals(2L, eventCaptor.getValue().getAvailableShippers().get(0).getShipperId());
         assertEquals(new BigDecimal("120000"), eventCaptor.getValue().getTotalPrice());
-        verify(matchService).tryReserveShipperOffer(2L, 123L, testEvent.getMatchingSessionId(), 180);
+        verify(matchService).tryReserveShipperOffer(2L, 123L, testEvent.getMatchingSessionId(), SingleOfferPolicy.DEFAULT_WAITING_TIMEOUT_SECONDS);
     }
 
     @Test
@@ -553,7 +555,7 @@ class FindShipperEventListenerTest {
                 objectMapper.writeValueAsString(testEvent), "test-topic", 0,
                 System.currentTimeMillis()).block();
 
-        verify(matchService).tryReserveShipperOffer(1L, 123L, testEvent.getMatchingSessionId(), 180);
+        verify(matchService).tryReserveShipperOffer(1L, 123L, testEvent.getMatchingSessionId(), SingleOfferPolicy.DEFAULT_WAITING_TIMEOUT_SECONDS);
         verify(matchService).releaseShipperOffer(1L, 123L, testEvent.getMatchingSessionId());
         verify(matchCommandStore, never()).stageFoundResult(any(), any());
         verify(matchCommandStore, never()).stageNotFoundResult(any(), any(), anyBoolean());

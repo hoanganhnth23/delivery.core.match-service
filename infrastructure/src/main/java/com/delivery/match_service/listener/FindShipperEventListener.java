@@ -73,6 +73,9 @@ public class FindShipperEventListener {
         private final BalancedEtaCanaryPolicy balancedEtaCanaryPolicy;
 
         private final SingleDispatchSearch singleDispatchSearch;
+        // Short offers, then the next shipper: the order keeps searching until Dispatch's deadline.
+        @Value("${matching.single-offer.waiting-timeout-seconds:" + SingleOfferPolicy.DEFAULT_WAITING_TIMEOUT_SECONDS + "}")
+        private int offerWindowSeconds = SingleOfferPolicy.DEFAULT_WAITING_TIMEOUT_SECONDS;
 
         // ✅ Constructor Injection Pattern (MANDATORY)
         @Autowired
@@ -560,13 +563,17 @@ public class FindShipperEventListener {
                                 : matchService.findNearbyShippers(request, userId, role);
         }
 
+        private int offerWindowSeconds() {
+                return SingleOfferPolicy.waitingTimeoutSeconds(offerWindowSeconds);
+        }
+
         private boolean reserveShipperOffer(Long shipperId, FindShipperEvent event) {
                 SimulationContext context = simulationContext(event);
                 return context.isSimulation()
                                 ? matchService.tryReserveShipperOffer(shipperId, event.getDeliveryId(),
-                                                matchingSessionId(event), SingleOfferPolicy.WAITING_TIMEOUT_SECONDS, context)
+                                                matchingSessionId(event), offerWindowSeconds(), context)
                                 : matchService.tryReserveShipperOffer(shipperId, event.getDeliveryId(),
-                                                matchingSessionId(event), SingleOfferPolicy.WAITING_TIMEOUT_SECONDS);
+                                                matchingSessionId(event), offerWindowSeconds());
         }
 
         private boolean releaseShipperOffer(Long shipperId, FindShipperEvent event) {
@@ -713,6 +720,7 @@ public class FindShipperEventListener {
                                 matchResults);
                 foundEvent.setEventId(outcomeEventId("shipper-found", event.getEventId()).toString());
                 foundEvent.setMatchingSessionId(matchingSessionId(event).toString());
+                foundEvent.setWaitingTimeoutSeconds(offerWindowSeconds());
 
                 // ✅ Set additional info từ FindShipperEvent
                 foundEvent.setRestaurantName(event.getRestaurantName());

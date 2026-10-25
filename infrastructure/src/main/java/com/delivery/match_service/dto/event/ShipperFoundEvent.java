@@ -77,7 +77,7 @@ public class ShipperFoundEvent {
         this.orderId = orderId;
         this.availableShippers = shippers;
         this.foundAt = LocalDateTime.now();
-        this.waitingTimeoutSeconds = com.delivery.match.domain.single.SingleOfferPolicy.WAITING_TIMEOUT_SECONDS; // Keep aligned with the Saga SHIPPER_FOUND timeout
+        this.waitingTimeoutSeconds = com.delivery.match.domain.single.SingleOfferPolicy.DEFAULT_WAITING_TIMEOUT_SECONDS; // Listener sets the configured window
         this.matchingSessionId = "delivery_" + deliveryId;
     }
 }
