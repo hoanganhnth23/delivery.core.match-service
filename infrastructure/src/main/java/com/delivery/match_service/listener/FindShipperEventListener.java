@@ -17,6 +17,7 @@ import com.delivery.match.domain.single.SingleOfferPolicy;
 import com.delivery.match.application.single.SingleDispatchSearch;
 import com.delivery.match_service.service.SettlementEligibilityClient;
 import com.delivery.match_service.service.DispatchPoolService;
+import com.delivery.match_service.service.FindSearchRunner;
 import com.delivery.match_service.config.MatchingBatchProperties;
 import com.delivery.match_service.algorithm.BalancedEtaCanaryPolicy;
 import com.delivery.match_service.metrics.BusinessMetrics;
@@ -73,6 +74,7 @@ public class FindShipperEventListener {
         private final BalancedEtaCanaryPolicy balancedEtaCanaryPolicy;
 
         private final SingleDispatchSearch singleDispatchSearch;
+        private FindSearchRunner searchRunner = FindSearchRunner.inline();
         // Short offers, then the next shipper: the order keeps searching until Dispatch's deadline.
         @Value("${matching.single-offer.waiting-timeout-seconds:" + SingleOfferPolicy.DEFAULT_WAITING_TIMEOUT_SECONDS + "}")
         private int offerWindowSeconds = SingleOfferPolicy.DEFAULT_WAITING_TIMEOUT_SECONDS;
@@ -89,9 +91,11 @@ public class FindShipperEventListener {
 				DispatchPoolService dispatchPoolService,
 				MatchingBatchProperties matchingBatchProperties,
 				BalancedEtaCanaryPolicy balancedEtaCanaryPolicy,
+				FindSearchRunner searchRunner,
 				@Value("${matching.candidate-pool-size:20}") int candidatePoolSize) {
 		this(matchService, matchCommandStore, matchCancellationService, cancellationProjectionRelay, settlementEligibilityClient,
 				businessMetrics, dispatchPoolService, matchingBatchProperties, balancedEtaCanaryPolicy, candidatePoolSize, Clock.systemDefaultZone());
+		this.searchRunner = searchRunner;
 	}
 
         FindShipperEventListener(
@@ -204,8 +208,10 @@ public class FindShipperEventListener {
                                                 event.getEventId());
                                 return Mono.empty();
                         }
+                        final FindShipperEvent command = event;
                         if (decision.mode() == MatchCommandStore.CommandMode.RESUME_CANDIDATE) {
-                                return resumeStagedCandidate(event, decision.stagedCandidate());
+                                return searchRunner.run(event.getEventId(),
+                                                () -> resumeStagedCandidate(command, decision.stagedCandidate()));
                         }
 
                         if (batchDispatchEnabled(event)) {
@@ -216,7 +222,7 @@ public class FindShipperEventListener {
                         }
 
                         // Start continuous shipper search only after the command inbox commits.
-                        return startContinuousShipperSearch(event);
+                        return searchRunner.run(event.getEventId(), () -> startContinuousShipperSearch(command));
 
                 } catch (Exception e) {
                         Long deliveryId = (event != null) ? event.getDeliveryId() : null;
@@ -403,6 +409,8 @@ public class FindShipperEventListener {
                                                         if (!canRetryBeforeDeadline(event, delayMs)) {
                                                                 throw new MatchingDeadlineExceededException();
                                                         }
+                                                        searchRunner.beforeRetry(event.getEventId(),
+                                                                        Duration.ofMillis(delayMs));
 
                                                         log.info("🔄 Retry attempt {}/{} for delivery: {} - Next retry in {}ms",
                                                                         attempt, maxRetries,

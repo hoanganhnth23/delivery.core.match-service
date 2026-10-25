@@ -29,6 +29,7 @@ import org.springframework.transaction.annotation.Transactional;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
+import java.time.Duration;
 import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Objects;
@@ -85,6 +86,31 @@ public class MatchCommandStore {
     private final ObjectMapper objectMapper;
     private final Tracer tracer;
     private final DispatchPoolItemRepository poolRepository;
+
+    /** True when this caller now owns the single search for the command. */
+    @Transactional
+    public boolean claimSearch(UUID commandId, Duration lease) {
+        LocalDateTime now = LocalDateTime.now();
+        return commandRepository.claimSearch(commandId, now.plus(lease), now) == 1;
+    }
+
+    /** Extends a live lease, or (on failure) shortens it so recovery retries soon. */
+    @Transactional
+    public void moveSearchLease(UUID commandId, Duration fromNow) {
+        LocalDateTime now = LocalDateTime.now();
+        commandRepository.moveSearchLease(commandId, now.plus(fromNow), now);
+    }
+
+    /**
+     * Searches whose lease ran out. Commands older than {@code maxAge} are left
+     * alone: Dispatch's matching deadline has long since closed the case.
+     */
+    @Transactional(readOnly = true)
+    public List<MatchCommand> abandonedSearches(int limit, Duration maxAge) {
+        LocalDateTime now = LocalDateTime.now();
+        return commandRepository.findAbandonedSearches(now, now.minus(maxAge),
+                org.springframework.data.domain.PageRequest.of(0, limit));
+    }
 
     /**
      * Persists/validates the command before Match reads Redis or calls

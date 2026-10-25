@@ -18,6 +18,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.time.Duration;
 import java.util.List;
 import java.util.UUID;
 
@@ -263,6 +264,41 @@ class MatchCommandStoreIntegrationTest {
         assertThat(outboxRepository.lockNextOrderedBatch(10)).singleElement()
                 .extracting(MatchOutboxEvent::getEventId)
                 .isEqualTo(UUID.fromString(candidate.getEventId()));
+    }
+
+    @Test
+    void searchLeaseAllowsOneSearcherAndHandsAbandonedSearchesToRecovery() throws Exception {
+        FindShipperEvent command = command(UUID.fromString("77777777-7777-7777-7777-777777777777"));
+        store.acceptFindCommand("saga.command.find-shipper", objectMapper.writeValueAsString(command), command);
+
+        assertThat(store.claimSearch(command.getEventId(), Duration.ofSeconds(60))).isTrue();
+        // A redelivered record or a second replica must not start a parallel search.
+        assertThat(store.claimSearch(command.getEventId(), Duration.ofSeconds(60))).isFalse();
+        assertThat(store.abandonedSearches(10, Duration.ofHours(1))).isEmpty();
+
+        // The searcher died: its lease runs out and recovery may take over.
+        store.moveSearchLease(command.getEventId(), Duration.ofSeconds(-1));
+        assertThat(store.abandonedSearches(10, Duration.ofHours(1))).extracting(MatchCommand::getEventId)
+                .containsExactly(command.getEventId());
+        assertThat(store.abandonedSearches(10, Duration.ZERO)).as("past the matching horizon").isEmpty();
+        assertThat(store.claimSearch(command.getEventId(), Duration.ofSeconds(60))).isTrue();
+
+        // A finished search is never recovered or claimed again.
+        ShipperFoundEvent candidate = found(command, 907L);
+        store.stageCandidate(command.getEventId(), candidate);
+        store.stageFoundResult(command.getEventId(), candidate);
+        store.moveSearchLease(command.getEventId(), Duration.ofSeconds(-1));
+        assertThat(store.abandonedSearches(10, Duration.ofHours(1))).isEmpty();
+        assertThat(store.claimSearch(command.getEventId(), Duration.ofSeconds(60))).isFalse();
+    }
+
+    @Test
+    void unclaimedPendingCommandsAreLeftToKafkaRedeliveryNotRecovery() throws Exception {
+        // Batch-pool commands and records accepted before this change carry no lease.
+        FindShipperEvent command = command(UUID.fromString("78787878-7878-7878-7878-787878787878"));
+        store.acceptFindCommand("saga.command.find-shipper", objectMapper.writeValueAsString(command), command);
+
+        assertThat(store.abandonedSearches(10, Duration.ofHours(1))).isEmpty();
     }
 
     private FindShipperEvent command(UUID eventId) {

@@ -118,6 +118,31 @@ class FindShipperEventListenerTest {
     }
 
     @Test
+    void longSearchDoesNotHoldTheKafkaRecord() throws Exception {
+        // Regression: the consumer pauses until every async ack of a poll completes,
+        // so one order retrying for minutes stalled every other order behind it.
+        when(matchCommandStore.claimSearch(eq(testEvent.getEventId()), any(java.time.Duration.class)))
+                .thenReturn(true);
+        when(matchService.findNearbyShippers(any(FindNearbyShippersRequest.class), anyLong(), anyString()))
+                .thenReturn(Mono.never());
+        FindShipperEventListener production = new FindShipperEventListener(
+                matchService, matchCommandStore, matchCancellationService, cancellationProjectionRelay,
+                settlementEligibilityClient,
+                new com.delivery.match_service.metrics.BusinessMetrics(
+                        new io.micrometer.core.instrument.simple.SimpleMeterRegistry()),
+                null, null,
+                new com.delivery.match_service.algorithm.BalancedEtaCanaryPolicy(
+                        new com.delivery.match_service.config.MatchingAlgorithmProperties()),
+                new com.delivery.match_service.service.DetachedFindSearchRunner(matchCommandStore, 60, 10),
+                20);
+
+        production.handleFindShipperEvent(objectMapper.writeValueAsString(testEvent), "test-topic", 0,
+                System.currentTimeMillis()).block(java.time.Duration.ofSeconds(2));
+
+        verify(matchService, timeout(2000)).findNearbyShippers(any(FindNearbyShippersRequest.class), anyLong(), anyString());
+    }
+
+    @Test
     void testHandleFindShipperEvent_SuccessOnFirstAttempt() {
         // Given
         NearbyShipperResponse shipper1 = createTestShipper(1L, 10.763000, 106.661000);
