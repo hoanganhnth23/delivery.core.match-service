@@ -69,7 +69,10 @@ class SingleDispatchPolicyTest {
         assertEquals(UUID.nameUUIDFromBytes(("match:shipper-found:" + id).getBytes(StandardCharsets.UTF_8)), SingleOfferPolicy.outcomeId("shipper-found", id));
         for (String outcome : Arrays.asList(null, "", " ")) assertThrows(IllegalArgumentException.class, () -> SingleOfferPolicy.outcomeId(outcome, id));
         assertThrows(IllegalArgumentException.class, () -> SingleOfferPolicy.outcomeId("found", null));
-        assertEquals(180, SingleOfferPolicy.WAITING_TIMEOUT_SECONDS);
+        assertEquals(30, SingleOfferPolicy.DEFAULT_WAITING_TIMEOUT_SECONDS);
+        assertEquals(30, SingleOfferPolicy.waitingTimeoutSeconds(30));
+        assertEquals(1, SingleOfferPolicy.waitingTimeoutSeconds(0));
+        assertEquals(180, SingleOfferPolicy.waitingTimeoutSeconds(600));
         assertEquals(5d, SingleOfferPolicy.SEARCH_RADIUS_KM);
         var first = new SingleOfferPolicy.Candidate(2L, "name", "phone", 1, 10, 106, true);
         var second = new SingleOfferPolicy.Candidate(1L, null, null, 2, 11, 107, false);
